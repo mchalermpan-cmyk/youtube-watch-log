@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Watch Log — บันทึกลิงก์ YouTube</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="wrap">
+
+    <header class="masthead">
+      <div>
+        <h1 class="masthead-title">Watch <span>Log</span></h1>
+        <div class="masthead-sub">บันทึกวิดีโอ YouTube ที่อยากดู</div>
+      </div>
+      <div class="tally" id="tally"></div>
+    </header>
+
+    <div id="configWarning"></div>
+
+    <section class="entry-card">
+      <form id="entryForm">
+        <div class="field full">
+          <label for="url">ลิงก์ YouTube</label>
+          <div class="url-row">
+            <input type="url" id="url" placeholder="https://www.youtube.com/watch?v=..." required />
+            <button type="button" class="btn" id="fetchInfoBtn">ดึงข้อมูลอัตโนมัติ</button>
+          </div>
+          <div class="hint">กดปุ่มเพื่อดึงชื่อวิดีโอและชื่อช่องจากลิงก์ให้อัตโนมัติ หรือกรอกเองด้านล่าง</div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="title">ชื่อวิดีโอ (Title)</label>
+            <input type="text" id="title" placeholder='React Beginner Course 2025 (Vite, Tailwind CSS, TypeScript)' required />
+          </div>
+          <div class="field">
+            <label for="channel">ชื่อช่อง (Channel)</label>
+            <input type="text" id="channel" placeholder="Coding in Flow" required />
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="videoDate">วันที่</label>
+            <input type="date" id="videoDate" />
+          </div>
+          <div class="field">
+            <label>สถานะ</label>
+            <div class="status-picker" id="statusPicker">
+              <button type="button" class="status-chip active" data-status="not_watched">ยังไม่ได้ดู</button>
+              <button type="button" class="status-chip" data-status="watching">กำลังดู</button>
+              <button type="button" class="status-chip" data-status="watched">ดูจบแล้ว</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="entry-footer">
+          <button type="submit" class="btn btn-primary" id="submitBtn">+ เพิ่มลงบันทึก</button>
+          <button type="button" class="btn btn-ghost" id="cancelEditBtn" style="display:none;">ยกเลิกการแก้ไข</button>
+        </div>
+        <div class="form-msg" id="formMsg"></div>
+        <input type="hidden" id="editId" />
+      </form>
+    </section>
+
+    <div class="filters" id="filters">
+      <button class="filter-chip active" data-filter="all">ทั้งหมด</button>
+      <button class="filter-chip" data-filter="not_watched">ยังไม่ได้ดู</button>
+      <button class="filter-chip" data-filter="watching">กำลังดู</button>
+      <button class="filter-chip" data-filter="watched">ดูจบแล้ว</button>
+    </div>
+
+    <main class="log" id="log">
+      <div class="loading">กำลังโหลดข้อมูล…</div>
+    </main>
+
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
