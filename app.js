@@ -28,6 +28,7 @@ let selectedStatus = "not_watched";
 let activeFilter = "all";
 let rows = [];
 let supabase = null;
+let appConfig = null;
 
 init();
 
@@ -45,10 +46,24 @@ async function init() {
     return;
   }
 
+  appConfig = config;
   supabase = createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY);
 
   bindEvents();
   await loadRows();
+}
+
+function extractVideoId(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1);
+    if (u.searchParams.get("v")) return u.searchParams.get("v");
+    const match = u.pathname.match(/\/(shorts|embed)\/([^/?]+)/);
+    if (match) return match[2];
+  } catch (e) {
+    /* invalid URL, fall through */
+  }
+  return null;
 }
 
 function showConfigWarning() {
@@ -95,172 +110,40 @@ async function fetchVideoInfo() {
   if (!url) return;
   els.fetchInfoBtn.disabled = true;
   els.fetchInfoBtn.textContent = "กำลังดึงข้อมูล…";
+
   try {
-    const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
-    if (!res.ok) throw new Error("oembed failed");
-    const data = await res.json();
-    if (data.title) els.title.value = data.title;
-    if (data.author_name) els.channel.value = data.author_name;
-    setMsg("ดึงข้อมูลสำเร็จ — ตรวจสอบวันที่และสถานะแล้วกดบันทึก", "ok");
-  } catch (e) {
-    setMsg("ดึงข้อมูลอัตโนมัติไม่สำเร็จ กรุณากรอกชื่อวิดีโอและชื่อช่องเอง", "error");
-  } finally {
-    els.fetchInfoBtn.disabled = false;
-    els.fetchInfoBtn.textContent = "ดึงข้อมูลอัตโนมัติ";
-  }
-}
+    let gotDate = false;
 
-async function loadRows() {
-  const { data, error } = await supabase
-    .from("youtube_videos")
-    .select("*")
-    .order("created_at", { ascending: false });
+    if (appConfig?.YOUTUBE_API_KEY) {
+      const videoId = extractVideoId(url);
+      if (videoId) {
+        const apiRes = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${appConfig.YOUTUBE_API_KEY}`
+        );
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          const item = apiData.items && apiData.items[0];
+          if (item) {
+            els.title.value = item.snippet.title;
+            els.channel.value = item.snippet.channelTitle;
+            if (item.snippet.publishedAt) {
+              els.videoDate.value = item.snippet.publishedAt.slice(0, 10);
+              gotDate = true;
+            }
+          }
+        }
+      }
+    }
 
-  if (error) {
-    els.log.innerHTML = `<div class="empty-state">โหลดข้อมูลไม่สำเร็จ: ${escapeHtml(error.message)}</div>`;
-    return;
-  }
-  rows = data;
-  render();
-}
+    if (!els.title.value || !els.channel.value) {
+      const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+      if (!res.ok) throw new Error("oembed failed");
+      const data = await res.json();
+      if (data.title) els.title.value = data.title;
+      if (data.author_name) els.channel.value = data.author_name;
+    }
 
-function render() {
-  updateTally();
-
-  const filtered = activeFilter === "all" ? rows : rows.filter((r) => r.status === activeFilter);
-
-  if (filtered.length === 0) {
-    els.log.innerHTML = `<div class="empty-state">ยังไม่มีรายการในหมวดนี้</div>`;
-    return;
-  }
-
-  els.log.innerHTML = filtered
-    .map(
-      (r, i) => `
-    <article class="ticket" data-status="${r.status}">
-      <span class="ticket-index">${String(i + 1).padStart(2, "0")}</span>
-      <div class="ticket-body">
-        <a class="ticket-title" href="${escapeAttr(r.youtube_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.title)}</a>
-        <div class="ticket-meta">
-          <span>${escapeHtml(r.channel)}</span>
-          ${r.video_date ? `<span class="dot">${formatDate(r.video_date)}</span>` : ""}
-          <button class="stamp" data-status="${r.status}" data-cycle="${r.id}" title="คลิกเพื่อเปลี่ยนสถานะ">${STATUS_LABEL[r.status]}</button>
-        </div>
-      </div>
-      <div class="ticket-actions">
-        <button class="icon-btn" data-edit="${r.id}" title="แก้ไข" aria-label="แก้ไข">✎</button>
-        <button class="icon-btn danger" data-delete="${r.id}" title="ลบ" aria-label="ลบ">✕</button>
-      </div>
-    </article>`
-    )
-    .join("");
-}
-
-function updateTally() {
-  const counts = { not_watched: 0, watching: 0, watched: 0 };
-  rows.forEach((r) => counts[r.status]++);
-  els.tally.innerHTML = `
-    <span><b>${rows.length}</b> ทั้งหมด</span>
-    <span><b>${counts.watching}</b> กำลังดู</span>
-    <span><b>${counts.watched}</b> ดูจบแล้ว</span>
-  `;
-}
-
-async function handleSubmit(e) {
-  e.preventDefault();
-  const payload = {
-    youtube_url: els.url.value.trim(),
-    title: els.title.value.trim(),
-    channel: els.channel.value.trim(),
-    video_date: els.videoDate.value || null,
-    status: selectedStatus,
-  };
-
-  if (!payload.youtube_url || !payload.title || !payload.channel) {
-    setMsg("กรุณากรอกลิงก์ ชื่อวิดีโอ และชื่อช่องให้ครบ", "error");
-    return;
-  }
-
-  els.submitBtn.disabled = true;
-  const editId = els.editId.value;
-
-  const { error } = editId
-    ? await supabase.from("youtube_videos").update(payload).eq("id", editId)
-    : await supabase.from("youtube_videos").insert(payload);
-
-  els.submitBtn.disabled = false;
-
-  if (error) {
-    setMsg(`บันทึกไม่สำเร็จ: ${error.message}`, "error");
-    return;
-  }
-
-  setMsg(editId ? "แก้ไขรายการเรียบร้อย" : "เพิ่มรายการเรียบร้อย", "ok");
-  resetForm();
-  await loadRows();
-}
-
-function startEdit(id) {
-  const row = rows.find((r) => r.id === id);
-  if (!row) return;
-  els.url.value = row.youtube_url;
-  els.title.value = row.title;
-  els.channel.value = row.channel;
-  els.videoDate.value = row.video_date || "";
-  selectedStatus = row.status;
-  [...els.statusPicker.children].forEach((c) => c.classList.toggle("active", c.dataset.status === row.status));
-  els.editId.value = row.id;
-  els.submitBtn.textContent = "บันทึกการแก้ไข";
-  els.cancelEditBtn.style.display = "inline-block";
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-async function handleDelete(id) {
-  if (!confirm("ลบรายการนี้ออกจากบันทึกใช่หรือไม่?")) return;
-  const { error } = await supabase.from("youtube_videos").delete().eq("id", id);
-  if (error) {
-    setMsg(`ลบไม่สำเร็จ: ${error.message}`, "error");
-    return;
-  }
-  await loadRows();
-}
-
-async function handleCycleStatus(id) {
-  const order = ["not_watched", "watching", "watched"];
-  const row = rows.find((r) => r.id === id);
-  if (!row) return;
-  const next = order[(order.indexOf(row.status) + 1) % order.length];
-  const { error } = await supabase.from("youtube_videos").update({ status: next }).eq("id", id);
-  if (error) return;
-  await loadRows();
-}
-
-function resetForm() {
-  els.form.reset();
-  els.editId.value = "";
-  selectedStatus = "not_watched";
-  [...els.statusPicker.children].forEach((c) => c.classList.toggle("active", c.dataset.status === "not_watched"));
-  els.submitBtn.textContent = "+ เพิ่มลงบันทึก";
-  els.cancelEditBtn.style.display = "none";
-}
-
-function setMsg(text, kind) {
-  els.formMsg.textContent = text;
-  els.formMsg.className = `form-msg ${kind}`;
-  setTimeout(() => {
-    els.formMsg.textContent = "";
-    els.formMsg.className = "form-msg";
-  }, 4000);
-}
-
-function formatDate(iso) {
-  const d = new Date(iso + "T00:00:00");
-  return d.toLocaleDateString("th-TH", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-function escapeHtml(str = "") {
-  return str.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-function escapeAttr(str = "") {
-  return escapeHtml(str);
-}
+    setMsg(
+      gotDate
+        ? "ดึงข้อมูลและวันที่เผยแพร่สำเร็จ — ตรวจสอบสถานะแล้วกดบันทึก"
+        : "ดึงชื่อวิดีโอ/ชื่อช่องสำเร็จ
